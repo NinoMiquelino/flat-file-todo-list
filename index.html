@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gerenciador de Tarefas (Flat-File JSON)</title>
+    <meta name="author" content="Onivaldo Miquelino">          
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { font-family: ui-sans-serif, system-ui; }
+        .task-title.completed {
+            text-decoration: line-through;
+            color: #6b7280; /* gray-500 */
+        }
+    </style>
+</head>
+<body class="bg-gray-100 min-h-screen p-4 flex justify-center">
+
+    <div class="w-full max-w-lg bg-white p-8 rounded-xl shadow-2xl">
+        <h1 class="text-3xl font-bold text-center text-indigo-700 mb-6">Lista de Tarefas JSON (Flat-File)</h1>
+        
+        <form id="taskForm" class="flex gap-2 mb-8">
+            <input type="text" id="taskTitle" placeholder="Adicionar nova tarefa..." required
+                   class="flex-grow border border-gray-300 focus:border-indigo-500 rounded-lg p-3 transition duration-150">
+            <button type="submit" class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-4 rounded-lg transition">
+                Adicionar
+            </button>
+        </form>
+
+        <div id="taskList" class="space-y-3">
+            <p class="text-center text-gray-500">Carregando tarefas...</p>
+        </div>
+
+        <div id="statusMessage" class="hidden mt-6 p-3 rounded-md text-sm"></div>
+    </div>
+
+    <script>
+        // ******************************************************************************
+        // ATENÇÃO: Mude esta URL para o caminho correto do seu arquivo api.php no servidor
+        // ******************************************************************************
+        //const API_URL = 'http://localhost:8001/src/api.php'; 
+        const API_URL = 'api.php'; 
+
+        const taskForm = document.getElementById('taskForm');
+        const taskTitleInput = document.getElementById('taskTitle');
+        const taskList = document.getElementById('taskList');
+        const statusMessage = document.getElementById('statusMessage');
+
+        // --- Funções de UI ---
+
+        function updateStatus(message, type = 'info') {
+            statusMessage.textContent = message;
+            statusMessage.classList.remove('hidden', 'bg-red-100', 'text-red-800', 'bg-green-100', 'text-green-800');
+            
+            if (type === 'error') {
+                statusMessage.classList.add('bg-red-100', 'text-red-800');
+            } else if (type === 'success') {
+                statusMessage.classList.add('bg-green-100', 'text-green-800');
+            } else {
+                 statusMessage.classList.add('bg-gray-200', 'text-gray-700');
+            }
+            statusMessage.classList.remove('hidden');
+        }
+        
+        function clearStatus() {
+            statusMessage.classList.add('hidden');
+        }
+
+        function renderTasks(tasks) {
+            taskList.innerHTML = '';
+            if (tasks.length === 0) {
+                taskList.innerHTML = '<p class="text-center text-gray-500 p-4 border rounded-lg">Nenhuma tarefa adicionada ainda!</p>';
+                return;
+            }
+
+            tasks.forEach(task => {
+                const taskDiv = document.createElement('div');
+                taskDiv.className = 'flex items-center justify-between bg-white p-3 border border-gray-200 rounded-lg shadow-sm hover:shadow-md transition';
+                taskDiv.id = `task-${task.id}`;
+
+                taskDiv.innerHTML = `
+                    <div class="flex items-center flex-grow min-w-0">
+                        <input type="checkbox" data-task-id="${task.id}" ${task.completed ? 'checked' : ''} 
+                               class="h-5 w-5 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500 mr-3 cursor-pointer">
+                        <span class="task-title text-gray-800 truncate ${task.completed ? 'completed' : ''}">${task.title}</span>
+                    </div>
+                    <button data-task-id="${task.id}" data-action="delete"
+                            class="text-red-500 hover:text-red-700 ml-4 font-semibold text-sm transition">
+                        Excluir
+                    </button>
+                `;
+                taskList.appendChild(taskDiv);
+            });
+            
+            // Adiciona listeners aos novos elementos (deleção e status)
+            taskList.querySelectorAll('input[type="checkbox"]').forEach(checkbox => {
+                checkbox.addEventListener('change', handleToggleStatus);
+            });
+            taskList.querySelectorAll('button[data-action="delete"]').forEach(button => {
+                button.addEventListener('click', handleDeleteTask);
+            });
+        }
+
+        // --- Operações CRUD (Frontend -> PHP) ---
+
+        // READ: Carregar tarefas ao iniciar
+        async function loadTasks() {
+            try {
+                const response = await fetch(API_URL);
+                const result = await response.json();
+
+                if (response.ok && result.success) {
+                    renderTasks(result.data);
+                } else {
+                    throw new Error(result.error || 'Falha ao carregar tarefas.');
+                }
+            } catch (error) {
+                updateStatus(`❌ Erro de Rede/Servidor: ${error.message}`, 'error');
+                taskList.innerHTML = '<p class="text-center text-red-500">Falha ao carregar dados.</p>';
+            }
+        }
+
+        // CREATE: Adicionar nova tarefa
+        async function handleAddTask(event) {
+            event.preventDefault();
+            clearStatus();
+            const title = taskTitleInput.value.trim();
+            if (!title) return;
+
+            try {
+                const response = await fetch(API_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ title: title })
+                });
+
+                const result = await response.json();
+
+                if (response.ok && result.success) {
+                    // Recarrega a lista para mostrar a nova tarefa
+                    await loadTasks(); 
+                    taskTitleInput.value = ''; // Limpa o input
+                    updateStatus('✅ Tarefa adicionada!', 'success');
+                } else {
+                    throw new Error(result.error || 'Falha ao adicionar tarefa.');
+                }
+            } catch (error) {
+                updateStatus(`❌ Erro: ${error.message}`, 'error');
+            }
+        }
+
+        // UPDATE: Alternar status (completed)
+        async function handleToggleStatus(event) {
+            const id = event.target.dataset.taskId;
+            const completed = event.target.checked;
+            clearStatus();
+
+            try {
+                const response = await fetch(API_URL, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ id: id, completed: completed })
+                });
+
+                const result = await response.json();
+                
+                if (response.ok && result.success) {
+                    // Atualiza a classe da UI sem recarregar tudo
+                    const titleElement = document.querySelector(`#task-${id} .task-title`);
+                    if (completed) {
+                        titleElement.classList.add('completed');
+                    } else {
+                        titleElement.classList.remove('completed');
+                    }
+                } else {
+                    // Reverte o checkbox e mostra erro
+                    event.target.checked = !completed; 
+                    throw new Error(result.error || 'Falha ao atualizar status.');
+                }
+            } catch (error) {
+                updateStatus(`❌ Erro: ${error.message}`, 'error');
+            }
+        }
+
+        // DELETE: Excluir tarefa
+        async function handleDeleteTask(event) {
+            const id = event.target.dataset.taskId;
+            clearStatus();
+            if (!confirm('Tem certeza que deseja excluir esta tarefa?')) return;
+            
+            try {
+                const response = await fetch(API_URL, {
+                    method: 'DELETE',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ id: id })
+                });
+
+                const result = await response.json();
+
+                if (response.ok && result.success) {
+                    // Remove o elemento da UI e atualiza o status
+                    document.getElementById(`task-${id}`).remove();
+                    // Garante que a mensagem de "Nenhuma tarefa" apareça se a lista ficar vazia
+                    if (taskList.children.length === 0) loadTasks(); 
+                    updateStatus('🗑️ Tarefa excluída!', 'success');
+                } else {
+                    throw new Error(result.error || 'Falha ao excluir tarefa.');
+                }
+            } catch (error) {
+                updateStatus(`❌ Erro: ${error.message}`, 'error');
+            }
+        }
+
+        // --- Inicialização ---
+
+        taskForm.addEventListener('submit', handleAddTask);
+        document.addEventListener('DOMContentLoaded', loadTasks);
+    </script>
+</body>
+</html>
