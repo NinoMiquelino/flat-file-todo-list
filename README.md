@@ -83,9 +83,9 @@ Utilize o servidor embutido do PHP para testes (a partir da raiz do projeto):
 ```bash
 php -S localhost:8001
 ```
-
+/*
 • Acesse: O frontend estará disponível em http://localhost:8001/public/index.html.
-​
+​*/
 ---
 
 ## 📝 Instruções de Uso
